@@ -193,12 +193,12 @@ module.exports = function registerSockets(io) {
       }
     });
 
-    socket.on('game:play-card', ({ roomId, cardIndex }) => {
+    socket.on('game:play-card', ({ roomId, cardIndex, faceDown }) => {
       const meta = socketMeta[socket.id];
       if (!meta || meta.roomId !== roomId) return socket.emit('error', { message: 'No autoritzat' });
       const state = gameStates[roomId];
       if (!state) return socket.emit('error', { message: 'Partida no trobada' });
-      applyAction(io, roomId, engine.playCard(state, meta.position, cardIndex), socket);
+      applyAction(io, roomId, engine.playCard(state, meta.position, cardIndex, !!faceDown), socket);
     });
 
     socket.on('game:challenge-truc', ({ roomId }) => {

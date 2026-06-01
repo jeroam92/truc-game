@@ -34,6 +34,7 @@ export default function Game() {
   const [trickView, setTrickView] = useState(null);
   const [surrenderVote, setSurrenderVote] = useState(null); // { team, initiatorName }
   const [mySurrenderPending, setMySurrenderPending] = useState(false);
+  const [playFaceDown, setPlayFaceDown] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -145,7 +146,8 @@ export default function Game() {
   }, [roomId, token, user, t, showToast]);
 
   function playCard(index) {
-    socketRef.current?.emit('game:play-card', { roomId, cardIndex: index });
+    socketRef.current?.emit('game:play-card', { roomId, cardIndex: index, faceDown: playFaceDown });
+    setPlayFaceDown(false);
   }
 
   function challengeTruc() {
@@ -195,6 +197,10 @@ export default function Game() {
       return !o;
     });
   }
+
+  useEffect(() => {
+    if (!isMyTurn) setPlayFaceDown(false);
+  }, [isMyTurn]);
 
   useEffect(() => {
     if (chatOpen) {
@@ -368,8 +374,23 @@ export default function Game() {
                 <div key={i} style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 2 }}>
                     {getPlayerName(players, play.position)}
+                    {play.faceDown && <span style={{ color: 'var(--gold)', marginLeft: 3 }}>↓</span>}
                   </div>
-                  <Card card={play.card} disabled />
+                  {play.card ? (
+                    <div style={{ opacity: play.faceDown ? 0.75 : 1, position: 'relative' }}>
+                      <Card card={play.card} disabled />
+                      {play.faceDown && (
+                        <div style={{
+                          position: 'absolute', inset: 0, borderRadius: 8,
+                          background: 'rgba(0,0,0,0.35)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '1.4rem', pointerEvents: 'none',
+                        }}>🂠</div>
+                      )}
+                    </div>
+                  ) : (
+                    <FaceDownCard />
+                  )}
                 </div>
               ))}
               {(!hand?.currentTrickPlays?.length) && (
@@ -421,6 +442,16 @@ export default function Game() {
               ? (hand.envit.step === 0 ? 'Torne' : 'Falta')
               : 'Envit'}
           </button>
+          {isMyTurn && (
+            <button
+              className={`btn ${playFaceDown ? 'btn-gold' : 'btn-secondary'}`}
+              style={{ fontSize: '0.8rem' }}
+              onClick={() => setPlayFaceDown((v) => !v)}
+              title="Juga la pròxima carta tapada (sense valor)"
+            >
+              {playFaceDown ? '🂠 Tapada ✓' : '🂠 Tapada'}
+            </button>
+          )}
           {gameState.phase === 'playing' && (
             mySurrenderPending ? (
               <button className="btn btn-secondary" style={{ fontSize: '0.8rem', opacity: 0.8 }} onClick={cancelSurrender}>
@@ -510,8 +541,14 @@ export default function Game() {
                 <div key={i} style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 5 }}>
                     {getPlayerName(players, play.position)}
+                    {play.faceDown && <span style={{ color: 'var(--gold)', marginLeft: 3 }} title="Jugada tapada">↓</span>}
                   </div>
-                  <Card card={play.card} disabled />
+                  <div style={{ opacity: play.faceDown ? 0.65 : 1 }}>
+                    <Card card={play.card} disabled />
+                  </div>
+                  {play.faceDown && (
+                    <div style={{ fontSize: '0.65rem', color: 'var(--gold)', marginTop: 3 }}>tapada</div>
+                  )}
                 </div>
               ))}
             </div>

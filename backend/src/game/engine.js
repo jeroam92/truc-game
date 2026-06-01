@@ -100,7 +100,7 @@ function newHand(state, dealerPosition) {
   };
 }
 
-function playCard(state, playerPosition, cardIndex) {
+function playCard(state, playerPosition, cardIndex, faceDown = false) {
   const h = state.hand;
   if (h.waitingResponse) return { error: 'Esperant resposta al desafiament' };
   if (h.currentPlayer !== playerPosition) return { error: 'No és el teu torn' };
@@ -111,7 +111,7 @@ function playCard(state, playerPosition, cardIndex) {
 
   const card = playerCards[cardIndex];
   const newCards = playerCards.filter((_, i) => i !== cardIndex);
-  const newPlays = [...h.currentTrickPlays, { position: playerPosition, card }];
+  const newPlays = [...h.currentTrickPlays, { position: playerPosition, card, faceDown: !!faceDown }];
 
   if (newPlays.length === 4) {
     const winner = resolveTrick(newPlays, h.manoPosition);
@@ -153,11 +153,14 @@ function playCard(state, playerPosition, cardIndex) {
 function resolveTrick(plays, manoPosition) {
   let best = null;
   for (const play of plays) {
+    if (play.faceDown) continue; // face-down cards never win
     if (!best || play.card.rank > best.card.rank ||
         (play.card.rank === best.card.rank && play.position === manoPosition)) {
       best = play;
     }
   }
+  // If all cards are face-down, the mano player wins
+  if (!best) best = plays.find((p) => p.position === manoPosition) || plays[0];
   return best;
 }
 
@@ -331,10 +334,19 @@ function penalizeTimeout(state) {
 function getPublicState(state, forPosition) {
   if (!state.hand) return state;
   const { playerHands, ...publicHand } = state.hand;
+
+  // In the current trick, hide face-down cards played by opponents
+  const maskedTrickPlays = (publicHand.currentTrickPlays || []).map((play) =>
+    play.faceDown && play.position !== forPosition
+      ? { ...play, card: null }
+      : play
+  );
+
   return {
     ...state,
     hand: {
       ...publicHand,
+      currentTrickPlays: maskedTrickPlays,
       myHand: playerHands[forPosition] || [],
       cardCounts: Object.fromEntries(
         Object.entries(playerHands).map(([pos, cards]) => [pos, cards.length])
