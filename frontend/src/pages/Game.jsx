@@ -69,10 +69,14 @@ export default function Game() {
   }, [timerExpiresAt]);
 
   useEffect(() => {
-    const socket = io('/', { auth: { token } });
+    const socket = io('/', { auth: { token }, forceNew: true });
     socketRef.current = socket;
 
+    // Emit immediately (buffered until connected) and re-emit on every reconnect
     socket.emit('room:join', { roomId });
+    socket.on('connect', () => {
+      socket.emit('room:join', { roomId });
+    });
 
     socket.on('room:players', ({ players: p }) => {
       setPlayers(p);
@@ -199,10 +203,6 @@ export default function Game() {
   }
 
   useEffect(() => {
-    if (!isMyTurn) setPlayFaceDown(false);
-  }, [isMyTurn]);
-
-  useEffect(() => {
     if (chatOpen) {
       setChatUnread(0);
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -212,6 +212,11 @@ export default function Game() {
   const hand = gameState?.hand;
   const waitingResp = hand?.waitingResponse ?? null;
   const isMyTurn = hand && hand.currentPlayer === myPosition && !waitingResp && !hand.handWinner;
+
+  // Reset face-down toggle when it stops being my turn (declared after isMyTurn to avoid TDZ)
+  useEffect(() => {
+    if (!isMyTurn) setPlayFaceDown(false);
+  }, [isMyTurn]);
   const myTeam = players.find((p) => p.position === myPosition)?.team;
   const seating = myPosition !== null ? getSeatingLayout(myPosition) : null;
   const isMyTeamResponding = waitingResp && myTeam === waitingResp.toTeam;
@@ -243,7 +248,11 @@ export default function Game() {
   if (!gameState) {
     return (
       <div className="auth-page">
-        <p style={{ color: 'var(--text-muted)' }}>Carregant partida...</p>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⏳</div>
+          <p style={{ color: 'var(--text)', fontSize: '1.1rem', fontFamily: 'Cinzel, serif' }}>Carregant partida...</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.5rem' }}>Connectant al servidor</p>
+        </div>
       </div>
     );
   }

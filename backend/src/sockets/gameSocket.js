@@ -148,6 +148,8 @@ module.exports = function registerSockets(io) {
 
         if (gameStates[roomId]) {
           socket.emit('game:state', engine.getPublicState(gameStates[roomId], position));
+          // Re-emit game:started so clients that missed it (reconnect/timing) navigate to the game
+          socket.emit('game:started', { message: 'La partida ha començat!' });
           if (turnTimers[roomId]) {
             socket.emit('game:timer', { expiresAt: turnTimers[roomId].expiresAt });
           }

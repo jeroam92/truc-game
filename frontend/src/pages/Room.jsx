@@ -32,21 +32,24 @@ export default function Room() {
   }, [roomId, navigate]);
 
   useEffect(() => {
-    const socket = io('/', { auth: { token } });
+    const socket = io('/', { auth: { token }, forceNew: true });
     socketRef.current = socket;
-    socket.emit('room:join', { roomId });
+
+    // Re-emit room:join on every connect/reconnect
+    socket.on('connect', () => {
+      socket.emit('room:join', { roomId });
+    });
+
     socket.on('room:players', ({ players: p }) => setPlayers(p));
     socket.on('room:online', ({ onlineUserIds }) => setOnlineIds(onlineUserIds));
     socket.on('room:chat', (msg) => setMessages((prev) => [...prev, msg]));
     socket.on('game:started', () => navigate(`/game/${roomId}`));
     socket.on('error', ({ message }) => {
       setError(message);
-      // Also show as a prominent toast so it's never missed
       setTimeout(() => setError(''), 6000);
     });
     socket.on('connect_error', (err) => {
       console.error('Socket connect error:', err.message);
-      setError(`Error de connexió: ${err.message}`);
     });
     return () => socket.disconnect();
   }, [roomId, token, navigate]);
