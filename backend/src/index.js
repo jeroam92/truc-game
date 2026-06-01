@@ -29,6 +29,14 @@ app.use('/api/rooms', roomRoutes);
 registerSockets(io);
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Truc backend running on port ${PORT}`);
+  // Reset rooms stuck in 'playing' from a previous process (in-memory state is lost on restart)
+  try {
+    const pool = require('./config/db');
+    await pool.query("UPDATE rooms SET status='waiting' WHERE status='playing'");
+    console.log('Reset playing rooms to waiting');
+  } catch (e) {
+    console.error('Could not reset room statuses:', e.message);
+  }
 });

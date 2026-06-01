@@ -39,7 +39,15 @@ export default function Room() {
     socket.on('room:online', ({ onlineUserIds }) => setOnlineIds(onlineUserIds));
     socket.on('room:chat', (msg) => setMessages((prev) => [...prev, msg]));
     socket.on('game:started', () => navigate(`/game/${roomId}`));
-    socket.on('error', ({ message }) => setError(message));
+    socket.on('error', ({ message }) => {
+      setError(message);
+      // Also show as a prominent toast so it's never missed
+      setTimeout(() => setError(''), 6000);
+    });
+    socket.on('connect_error', (err) => {
+      console.error('Socket connect error:', err.message);
+      setError(`Error de connexió: ${err.message}`);
+    });
     return () => socket.disconnect();
   }, [roomId, token, navigate]);
 

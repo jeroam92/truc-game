@@ -168,8 +168,15 @@ module.exports = function registerSockets(io) {
         );
         if (!roomRows[0] || roomRows[0].host_id !== userId)
           return socket.emit('error', { message: 'Sols el host pot iniciar' });
-        if (roomRows[0].status !== 'waiting')
-          return socket.emit('error', { message: 'La partida ja ha començat' });
+
+        const status = roomRows[0].status;
+
+        // If game already running in memory, just resend game:started so clients can navigate
+        if (status === 'playing' && gameStates[roomId]) {
+          broadcastGameState(io, roomId);
+          io.to(roomId).emit('game:started', { message: 'La partida ha començat!' });
+          return;
+        }
 
         const { rows: players } = await pool.query(
           `SELECT u.id as "userId", rp.position, rp.team
@@ -179,6 +186,7 @@ module.exports = function registerSockets(io) {
         );
         if (players.length < 4) return socket.emit('error', { message: `Falten jugadors (${players.length}/4)` });
 
+        // Reset status if backend restarted (status=playing but no in-memory state)
         await pool.query("UPDATE rooms SET status='playing' WHERE id=$1", [roomId]);
         const state = engine.createInitialState(players);
         const handState = engine.newHand(state, 3);
@@ -188,8 +196,8 @@ module.exports = function registerSockets(io) {
         io.to(roomId).emit('game:started', { message: 'La partida ha començat!' });
         startTurnTimer(io, roomId);
       } catch (err) {
-        console.error(err);
-        socket.emit('error', { message: 'Error iniciant la partida' });
+        console.error('game:start error:', err);
+        socket.emit('error', { message: `Error iniciant la partida: ${err.message}` });
       }
     });
 
