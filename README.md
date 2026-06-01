@@ -77,6 +77,110 @@ Si vols executar-les manualment:
 docker compose exec truc-backend node src/config/migrate.js
 ```
 
+## Muntatge des de zero amb PostgreSQL propi
+
+Si no disposes d'un servidor PostgreSQL extern, pots afegir un contenidor `postgres:16` directament al projecte. Segueix aquests passos en compte dels de la secció anterior.
+
+### docker-compose.yml amb Postgres inclòs
+
+Substitueix el contingut de `docker-compose.yml` per:
+
+```yaml
+services:
+  truc-db:
+    image: postgres:16
+    container_name: truc-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - truc_db_data:/var/lib/postgresql/data
+    networks:
+      - truc_net
+
+  truc-backend:
+    build: ./backend
+    container_name: truc-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_HOST=truc-db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+    networks:
+      - truc_net
+    depends_on:
+      - truc-db
+
+  truc-frontend:
+    build: ./frontend
+    container_name: truc-frontend
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    networks:
+      - truc_net
+    depends_on:
+      - truc-backend
+
+networks:
+  truc_net:
+
+volumes:
+  truc_db_data:
+```
+
+> **Nota:** `DB_HOST` ha de ser exactament `truc-db` (el nom del servei), ja que els contenidors es resolen per nom dins la mateixa xarxa Docker.
+
+### Variables d'entorn per a aquesta configuració
+
+El fitxer `.env` no necessita cap canvi especial; simplement assegura't que `DB_HOST` no apareix sobreescrit:
+
+```env
+DB_HOST=truc-db
+DB_PORT=5432
+DB_NAME=truc
+DB_USER=postgres
+DB_PASSWORD=la_teua_contrasenya
+JWT_SECRET=canvia_aixo_per_un_secret_llarg_i_aleatori
+FRONTEND_URL=http://localhost:8081
+SMTP_HOST=smtp.exemple.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=correu@exemple.com
+SMTP_PASS=contrasenya_smtp
+SMTP_FROM=correu@exemple.com
+```
+
+### Arrencada
+
+```bash
+docker compose up -d
+```
+
+El contenidor `truc-db` s'inicialitza sol. El backend espera que estigui disponible i executa les migracions automàticament en arrencar.
+
+### Accés directe a la base de dades (opcional)
+
+```bash
+docker compose exec truc-db psql -U postgres -d truc
+```
+
+---
+
 ## Estructura del projecte
 
 ```
