@@ -1,0 +1,39 @@
+services:
+  truc-backend:
+    build: ./backend
+    container_name: truc-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_HOST=citas-db-1
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+    networks:
+      - citas_default
+    depends_on: []
+
+  truc-frontend:
+    build: ./frontend
+    container_name: truc-frontend
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    networks:
+      - citas_default
+    depends_on:
+      - truc-backend
+
+networks:
+  citas_default:
+    external: true
