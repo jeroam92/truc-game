@@ -11,7 +11,7 @@ export default function JoinRoom() {
   useEffect(() => {
     roomApi.join(inviteToken)
       .then(({ data }) => {
-        navigate(`/game/${data.roomId}`);
+        navigate(`/room/${data.roomId}`);
       })
       .catch((err) => {
         setError(err.response?.data?.error || 'Error unint-se a la sala');

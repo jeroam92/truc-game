@@ -12,7 +12,7 @@ export default function Card({ card, onClick, disabled = false, small = false })
   return (
     <div
       className={`playing-card ${suitClass} ${disabled ? 'disabled' : ''} ${small ? 'small-card' : ''}`}
-      style={small ? { width: 50, height: 75 } : {}}
+      style={small ? { width: 58, height: 87 } : {}}
       onClick={isClickable ? onClick : undefined}
       title={`${card.value} de ${SUIT_NAMES[card.suit]}`}
     >
@@ -28,7 +28,7 @@ export function FaceDownCard({ small = false }) {
   return (
     <div
       className="playing-card face-down"
-      style={small ? { width: 50, height: 75 } : {}}
+      style={small ? { width: 58, height: 87 } : {}}
     />
   );
 }

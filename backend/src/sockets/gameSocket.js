@@ -6,6 +6,7 @@ const gameStates = {};
 const roomSockets = {};
 const socketMeta = {};
 const turnTimers = {}; // roomId -> { timeout, expiresAt }
+const surrenderVotes = {}; // roomId -> { team, initiatorId, initiatorName, votes: Set<userId> }
 
 const TURN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
@@ -99,6 +100,10 @@ function applyAction(io, roomId, newState, socket) {
 
 function startNewHand(io, roomId, currentState) {
   if (!gameStates[roomId] || gameStates[roomId].phase === 'finished') return;
+  if (surrenderVotes[roomId]) {
+    delete surrenderVotes[roomId];
+    io.to(roomId).emit('game:surrender-cancelled', {});
+  }
   const nextDealer = (currentState.hand.dealerPosition + 1) % 4;
   const newState = engine.newHand(currentState, nextDealer);
   gameStates[roomId] = newState;
@@ -131,7 +136,7 @@ module.exports = function registerSockets(io) {
         socketMeta[socket.id] = { userId, username, roomId, position, team };
 
         const { rows: players } = await pool.query(
-          `SELECT u.id, u.username, rp.position, rp.team
+          `SELECT u.id AS "userId", u.username, rp.position, rp.team
            FROM room_players rp JOIN users u ON u.id=rp.user_id
            WHERE rp.room_id=$1 ORDER BY rp.position`,
           [roomId]
@@ -242,6 +247,49 @@ module.exports = function registerSockets(io) {
       if (!state) return socket.emit('error', { message: 'Partida no trobada' });
       if (!accept) io.to(roomId).emit('game:fold', { type: 'envit', who: username });
       applyAction(io, roomId, engine.respondEnvit(state, meta.position, accept), socket);
+    });
+
+    socket.on('game:surrender-request', ({ roomId }) => {
+      const meta = socketMeta[socket.id];
+      if (!meta || meta.roomId !== roomId) return;
+      const state = gameStates[roomId];
+      if (!state || state.phase !== 'playing') return;
+
+      const { team, userId } = meta;
+      const existing = surrenderVotes[roomId];
+
+      if (!existing) {
+        surrenderVotes[roomId] = { team, initiatorId: userId, initiatorName: username, votes: new Set([userId]) };
+        io.to(roomId).emit('game:surrender-vote', { team, initiatorName: username });
+      } else if (existing.team === team && !existing.votes.has(userId)) {
+        delete surrenderVotes[roomId];
+        clearTurnTimer(roomId);
+        const winnerTeam = team === 1 ? 2 : 1;
+        const newState = { ...state, phase: 'finished', winnerTeam };
+        gameStates[roomId] = newState;
+        persistState(roomId, newState);
+        pool.query("UPDATE rooms SET status='finished' WHERE id=$1", [roomId]).catch(console.error);
+        io.to(roomId).emit('game:finished', { winnerTeam, scores: newState.scores, surrendered: true });
+      } else if (existing.team !== team) {
+        socket.emit('error', { message: "L'equip contrari té una votació en curs" });
+      }
+    });
+
+    socket.on('game:surrender-cancel', ({ roomId }) => {
+      const meta = socketMeta[socket.id];
+      if (!meta || meta.roomId !== roomId) return;
+      if (surrenderVotes[roomId]?.team === meta.team) {
+        delete surrenderVotes[roomId];
+        io.to(roomId).emit('game:surrender-cancelled', {});
+      }
+    });
+
+    socket.on('room:chat', ({ roomId, message }) => {
+      const meta = socketMeta[socket.id];
+      if (!meta || meta.roomId !== roomId) return;
+      const text = String(message || '').trim().slice(0, 200);
+      if (!text) return;
+      io.to(roomId).emit('room:chat', { username: meta.username, message: text, ts: Date.now() });
     });
 
     socket.on('disconnect', () => {

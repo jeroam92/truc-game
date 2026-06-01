@@ -6,6 +6,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import VerifyEmail from './pages/VerifyEmail';
 import Lobby from './pages/Lobby';
+import Room from './pages/Room';
 import JoinRoom from './pages/JoinRoom';
 import Game from './pages/Game';
 
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/lobby" element={<PrivateRoute><Lobby /></PrivateRoute>} />
+          <Route path="/room/:roomId" element={<PrivateRoute><Room /></PrivateRoute>} />
           <Route path="/join/:inviteToken" element={<PrivateRoute><JoinRoom /></PrivateRoute>} />
           <Route path="/game/:roomId" element={<PrivateRoute><Game /></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/lobby" replace />} />

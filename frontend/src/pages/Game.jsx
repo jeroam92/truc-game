@@ -6,7 +6,6 @@ import { useAuth } from '../contexts/AuthContext';
 import Card, { FaceDownCard } from '../components/Card';
 import LangToggle from '../components/LangToggle';
 
-// Seating layout: player at bottom (position=myPos), partners/opponents around
 function getSeatingLayout(myPosition) {
   return {
     bottom: myPosition,
@@ -26,11 +25,20 @@ export default function Game() {
   const { token, user, logout } = useAuth();
   const navigate = useNavigate();
   const socketRef = useRef(null);
+  const myPositionRef = useRef(null);
 
   const [gameState, setGameState] = useState(null);
   const [players, setPlayers] = useState([]);
   const [onlineIds, setOnlineIds] = useState([]);
-  const [challenge, setChallenge] = useState(null);
+  const [challengeFrom, setChallengeFrom] = useState(null);
+  const [trickView, setTrickView] = useState(null);
+  const [surrenderVote, setSurrenderVote] = useState(null); // { team, initiatorName }
+  const [mySurrenderPending, setMySurrenderPending] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatUnread, setChatUnread] = useState(0);
+  const chatEndRef = useRef(null);
   const [toast, setToast] = useState(null);
   const [winner, setWinner] = useState(null);
   const [myPosition, setMyPosition] = useState(null);
@@ -41,6 +49,11 @@ export default function Game() {
     setToast(msg);
     setTimeout(() => setToast(null), duration);
   }, []);
+
+  function setPosition(pos) {
+    myPositionRef.current = pos;
+    setMyPosition(pos);
+  }
 
   useEffect(() => {
     if (!timerExpiresAt) { setTimeLeft(null); return; }
@@ -62,30 +75,30 @@ export default function Game() {
 
     socket.on('room:players', ({ players: p }) => {
       setPlayers(p);
-      const me = p.find((pl) => pl.userId === user?.id);
-      if (me) setMyPosition(me.position);
+      if (myPositionRef.current === null) {
+        const me = p.find((pl) => pl.userId === user?.id);
+        if (me) setPosition(me.position);
+      }
     });
+
     socket.on('room:online', ({ onlineUserIds }) => setOnlineIds(onlineUserIds));
 
     socket.on('game:state', (state) => {
       setGameState(state);
-      if (myPosition === null) {
+      if (myPositionRef.current === null) {
         const me = state.players?.find((p) => p.userId === user?.id);
-        if (me) setMyPosition(me.position);
+        if (me) setPosition(me.position);
       }
+      if (!state.hand?.waitingResponse) setChallengeFrom(null);
     });
 
-    socket.on('game:challenge', ({ type, from, label, toTeam }) => {
-      setChallenge({ type, from, label, toTeam });
-    });
+    socket.on('game:challenge', ({ from }) => setChallengeFrom(from));
 
     socket.on('game:fold', ({ type, who }) => {
       showToast(`${who} s'ha retirat del ${type === 'truc' ? 'Truc' : 'Envit'}`);
     });
 
-    socket.on('game:timer', ({ expiresAt }) => {
-      setTimerExpiresAt(expiresAt);
-    });
+    socket.on('game:timer', ({ expiresAt }) => setTimerExpiresAt(expiresAt));
 
     socket.on('game:timeout', () => {
       setTimerExpiresAt(null);
@@ -98,19 +111,38 @@ export default function Game() {
     });
 
     socket.on('game:new-hand', ({ hand }) => {
-      setChallenge(null);
+      setChallengeFrom(null);
+      setTrickView(null);
+      setSurrenderVote(null);
+      setMySurrenderPending(false);
       showToast(`Mà ${hand}`);
     });
 
-    socket.on('game:finished', ({ winnerTeam, scores }) => {
+    socket.on('game:finished', ({ winnerTeam, scores, surrendered }) => {
       setTimerExpiresAt(null);
-      setWinner({ team: winnerTeam, scores });
+      setSurrenderVote(null);
+      setMySurrenderPending(false);
+      setWinner({ team: winnerTeam, scores, surrendered });
+    });
+
+    socket.on('game:surrender-vote', ({ team, initiatorName }) => {
+      setSurrenderVote({ team, initiatorName });
+    });
+
+    socket.on('game:surrender-cancelled', () => {
+      setSurrenderVote(null);
+      setMySurrenderPending(false);
+    });
+
+    socket.on('room:chat', (msg) => {
+      setChatMessages((prev) => [...prev, msg]);
+      setChatUnread((n) => n + 1);
     });
 
     socket.on('error', ({ message }) => showToast(`Error: ${message}`, 4000));
 
     return () => socket.disconnect();
-  }, [roomId, token, user, myPosition, t, showToast]);
+  }, [roomId, token, user, t, showToast]);
 
   function playCard(index) {
     socketRef.current?.emit('game:play-card', { roomId, cardIndex: index });
@@ -125,34 +157,82 @@ export default function Game() {
   }
 
   function respondChallenge(accept) {
-    if (!challenge) return;
-    const event = challenge.type === 'truc' ? 'game:respond-truc' : 'game:respond-envit';
+    if (!waitingResp) return;
+    const event = waitingResp.type === 'truc' ? 'game:respond-truc' : 'game:respond-envit';
     socketRef.current?.emit(event, { roomId, accept });
-    setChallenge(null);
+    if (!accept) setChallengeFrom(null);
   }
 
+  function raiseChallenge() {
+    socketRef.current?.emit('game:challenge-truc', { roomId });
+  }
+
+  function requestSurrender() {
+    setMySurrenderPending(true);
+    socketRef.current?.emit('game:surrender-request', { roomId });
+  }
+
+  function cancelSurrender() {
+    setMySurrenderPending(false);
+    socketRef.current?.emit('game:surrender-cancel', { roomId });
+  }
+
+  function acceptSurrender() {
+    socketRef.current?.emit('game:surrender-request', { roomId });
+  }
+
+  function sendChat(e) {
+    e.preventDefault();
+    const text = chatInput.trim();
+    if (!text) return;
+    socketRef.current?.emit('room:chat', { roomId, message: text });
+    setChatInput('');
+  }
+
+  function toggleChat() {
+    setChatOpen((o) => {
+      if (!o) setChatUnread(0);
+      return !o;
+    });
+  }
+
+  useEffect(() => {
+    if (chatOpen) {
+      setChatUnread(0);
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatOpen, chatMessages]);
+
   const hand = gameState?.hand;
-  const isMyTurn = hand && hand.currentPlayer === myPosition && !hand.waitingResponse && !hand.handWinner;
+  const waitingResp = hand?.waitingResponse ?? null;
+  const isMyTurn = hand && hand.currentPlayer === myPosition && !waitingResp && !hand.handWinner;
   const myTeam = players.find((p) => p.position === myPosition)?.team;
   const seating = myPosition !== null ? getSeatingLayout(myPosition) : null;
-  const isMyTeamResponding = challenge && myTeam === challenge.toTeam;
+  const isMyTeamResponding = waitingResp && myTeam === waitingResp.toTeam;
+  const isSurrenderFromMyTeam = surrenderVote?.team === myTeam;
+  const isTeammateRequestingSurrender = isSurrenderFromMyTeam && !mySurrenderPending;
 
   const trucLabel = () => {
     if (!hand) return t('game.truc');
     const step = hand.truc.step;
     if (hand.truc.status === 'none' || hand.truc.status === 'folded') return t('game.truc');
-    if (step === 0) return t('game.retruc');
+    if (step === 0) return 'Retruc';
     if (step === 1) return 'Quatre Val';
     if (step === 2) return 'Joc Fora';
     return t('game.truc');
   };
 
-  const canTruc = hand && !hand.waitingResponse && !hand.handWinner &&
-    hand.truc.lastCallerTeam !== myTeam &&
-    hand.truc.step < 3;
+  const canTruc = hand && !hand.handWinner && hand.truc.step < 3 &&
+    (!waitingResp || (waitingResp.type === 'truc' && waitingResp.toTeam === myTeam)) &&
+    hand.truc.lastCallerTeam !== myTeam;
 
-  const canEnvit = hand && hand.canEnvit && !hand.waitingResponse &&
-    (hand.envit.status === 'none') && hand.truc.status === 'none';
+  const canEnvitInitial = hand && hand.canEnvit && !waitingResp &&
+    hand.envit.status === 'none' && hand.truc.status === 'none';
+  const canEnvitRaise = hand && hand.canEnvit && !waitingResp &&
+    hand.envit.status === 'accepted' &&
+    hand.envit.lastCallerTeam !== myTeam &&
+    hand.envit.step < 2; // step 0 → Torne; step 1 → Falta
+  const canEnvit = canEnvitInitial || canEnvitRaise;
 
   if (!gameState) {
     return (
@@ -168,28 +248,43 @@ export default function Game() {
       <div className="game-header">
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           <LangToggle />
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{user?.username}</span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{user?.username}</span>
         </div>
 
         <div className="score-board">
           <div className="score-team">
             <div className="team-name" style={{ color: 'rgba(196,30,58,0.8)' }}>{t('game.team1')}</div>
             <div className="score">{gameState.scores?.[1] ?? 0}</div>
+            <div className="pierna-dots">
+              {[0, 1].map((i) => (
+                <span key={i} className={`pierna-dot${(gameState.piernas?.[1] ?? 0) > i ? ' won' : ''}`} />
+              ))}
+            </div>
           </div>
-          <span className="score-divider">–</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
+            <span className="score-divider">–</span>
+            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>/ 12</span>
+          </div>
           <div className="score-team">
             <div className="team-name" style={{ color: 'rgba(26,100,180,0.8)' }}>{t('game.team2')}</div>
             <div className="score">{gameState.scores?.[2] ?? 0}</div>
+            <div className="pierna-dots">
+              {[0, 1].map((i) => (
+                <span key={i} className={`pierna-dot${(gameState.piernas?.[2] ?? 0) > i ? ' won' : ''}`} />
+              ))}
+            </div>
           </div>
-          <div style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>/ 24</div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           {hand?.truc.status !== 'none' && (
-            <span style={{ color: 'var(--gold)' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
               Truc: {hand?.truc.status === 'accepted' ? `${['2','3','4','24'][hand.truc.step]} pts` : hand?.truc.status}
             </span>
           )}
+          <button className="chat-toggle-btn" onClick={toggleChat}>
+            💬 Xat{chatUnread > 0 && !chatOpen ? <span className="chat-badge">{chatUnread}</span> : null}
+          </button>
         </div>
       </div>
 
@@ -199,8 +294,8 @@ export default function Game() {
         {/* Status bar */}
         <div className={`status-bar ${isMyTurn ? 'your-turn' : ''}`}>
           {hand?.handWinner ? t('game.handWon', { team: hand.handWinner }) :
+           waitingResp ? `Esperant resposta de l'Equip ${waitingResp.toTeam}...` :
            isMyTurn ? t('game.yourTurn') :
-           hand?.waitingResponse ? `Esperant resposta de l'Equip ${hand.waitingResponse.toTeam}...` :
            `Torn de ${seating ? getPlayerName(players, hand?.currentPlayer) : '...'}`}
         </div>
 
@@ -219,11 +314,16 @@ export default function Game() {
           </div>
         )}
 
-        {/* Trick dots */}
+        {/* Trick dots — clickable to view past tricks */}
         {hand && (
           <div className="tricks-indicator">
             {hand.trickWinners.map((team, i) => (
-              <div key={i} className={`trick-dot team${team}`} title={`Baza ${i + 1}: Equip ${team}`} />
+              <button
+                key={i}
+                className={`trick-dot team${team} trick-dot-btn`}
+                title={`Baza ${i + 1}: Equip ${team} — clic per veure`}
+                onClick={() => setTrickView(i)}
+              />
             ))}
             {Array.from({ length: 3 - hand.trickWinners.length }).map((_, i) => (
               <div key={`empty-${i}`} className="trick-dot" />
@@ -249,7 +349,7 @@ export default function Game() {
         {/* Middle row: left opponent, table, right opponent */}
         <div style={{ display: 'flex', flex: 1, gap: '0.5rem', alignItems: 'center' }}>
           {seating && (
-            <div style={{ textAlign: 'center', minWidth: 70 }}>
+            <div style={{ textAlign: 'center', minWidth: 75 }}>
               <div className={`player-label ${hand?.currentPlayer === seating.left ? 'active' : ''}`}>
                 {getPlayerName(players, seating.left)}
               </div>
@@ -266,14 +366,14 @@ export default function Game() {
             <div className="played-cards">
               {hand?.currentTrickPlays?.map((play, i) => (
                 <div key={i} style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: 2 }}>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 2 }}>
                     {getPlayerName(players, play.position)}
                   </div>
                   <Card card={play.card} disabled />
                 </div>
               ))}
               {(!hand?.currentTrickPlays?.length) && (
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
                   Mà {gameState.currentHand}
                 </span>
               )}
@@ -281,7 +381,7 @@ export default function Game() {
           </div>
 
           {seating && (
-            <div style={{ textAlign: 'center', minWidth: 70 }}>
+            <div style={{ textAlign: 'center', minWidth: 75 }}>
               <div className={`player-label ${hand?.currentPlayer === seating.right ? 'active' : ''}`}>
                 {getPlayerName(players, seating.right)}
               </div>
@@ -297,7 +397,7 @@ export default function Game() {
         {/* My hand */}
         <div>
           <div className={`player-label ${isMyTurn ? 'active' : ''}`}>
-            {user?.username} {t('game.yourTurn') && isMyTurn ? `— ${t('game.yourTurn')}` : ''}
+            {user?.username}{isMyTurn ? ` — ${t('game.yourTurn')}` : ''}
           </div>
           <div className="hand-zone">
             {hand?.myHand?.map((card, i) => (
@@ -313,46 +413,54 @@ export default function Game() {
 
         {/* Action buttons */}
         <div className="action-panel">
-          <button
-            className="btn btn-primary"
-            disabled={!canTruc}
-            onClick={challengeTruc}
-          >
+          <button className="btn btn-primary" disabled={!canTruc} onClick={challengeTruc}>
             {trucLabel()}
           </button>
-          <button
-            className="btn btn-secondary"
-            disabled={!canEnvit}
-            onClick={challengeEnvit}
-          >
-            Envit
+          <button className="btn btn-secondary" disabled={!canEnvit} onClick={challengeEnvit}>
+            {hand?.envit?.status === 'accepted' && hand?.envit?.lastCallerTeam !== myTeam
+              ? (hand.envit.step === 0 ? 'Torne' : 'Falta')
+              : 'Envit'}
           </button>
+          {gameState.phase === 'playing' && (
+            mySurrenderPending ? (
+              <button className="btn btn-secondary" style={{ fontSize: '0.8rem', opacity: 0.8 }} onClick={cancelSurrender}>
+                Cancel·lar rendició
+              </button>
+            ) : (
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}
+                disabled={!!surrenderVote && !isSurrenderFromMyTeam}
+                onClick={requestSurrender}
+              >
+                Rendir-se
+              </button>
+            )
+          )}
         </div>
       </div>
 
       {/* Challenge response modal */}
-      {challenge && isMyTeamResponding && (
+      {waitingResp && isMyTeamResponding && (
         <div className="challenge-overlay">
           <div className="challenge-modal">
-            <h2>{challenge.label}</h2>
+            <h2>{waitingResp.label}</h2>
             <p>
-              {challenge.from} ha cantat <strong>{challenge.label}</strong>.
-              <br />L'Equip {challenge.toTeam} ha de respondre.
+              {challengeFrom ? `${challengeFrom} ha cantat` : "L'equip contrari ha cantat"}{' '}
+              <strong>{waitingResp.label}</strong>.
+              <br />L'Equip {waitingResp.toTeam} ha de respondre.
             </p>
             <div className="challenge-actions">
               <button className="btn btn-primary" onClick={() => respondChallenge(true)}>
                 {t('game.accept')}
               </button>
-              {challenge.type === 'truc' && (
-                <button
-                  className="btn btn-gold"
-                  onClick={() => {
-                    setChallenge(null);
-                    if (challenge.label === 'Truc') socketRef.current?.emit('game:challenge-truc', { roomId });
-                    else if (challenge.label === 'Retruc') socketRef.current?.emit('game:challenge-truc', { roomId });
-                    else if (challenge.label === 'Quatre Val') socketRef.current?.emit('game:challenge-truc', { roomId });
-                  }}
-                >
+              {waitingResp.type === 'truc' && waitingResp.label !== 'Joc Fora' && (
+                <button className="btn btn-gold" onClick={raiseChallenge}>
+                  Pujar
+                </button>
+              )}
+              {waitingResp.type === 'envit' && waitingResp.label !== 'Falta' && (
+                <button className="btn btn-gold" onClick={() => socketRef.current?.emit('game:challenge-envit', { roomId })}>
                   Pujar
                 </button>
               )}
@@ -364,12 +472,65 @@ export default function Game() {
         </div>
       )}
 
+      {/* Surrender vote modal (teammate requesting surrender) */}
+      {isTeammateRequestingSurrender && (
+        <div className="challenge-overlay">
+          <div className="challenge-modal">
+            <h2 style={{ color: 'var(--text-muted)' }}>Votació de rendició</h2>
+            <p>
+              <strong>{surrenderVote.initiatorName}</strong> vol rendir-se.<br />
+              Si acceptes, l'Equip {surrenderVote.team} perdrà la partida.
+            </p>
+            <div className="challenge-actions">
+              <button className="btn btn-primary" onClick={acceptSurrender}>
+                Acceptar
+              </button>
+              <button className="btn btn-secondary" onClick={cancelSurrender}>
+                Rebutjar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trick history modal */}
+      {trickView !== null && hand?.tricks?.[trickView] && (
+        <div className="challenge-overlay" onClick={() => setTrickView(null)}>
+          <div className="challenge-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginBottom: '0.25rem' }}>Baza {trickView + 1}</h2>
+            <p style={{
+              color: hand.trickWinners[trickView] === 1 ? 'rgba(196,30,58,0.9)' : 'rgba(100,160,255,0.9)',
+              marginBottom: '1.25rem',
+              fontSize: '0.95rem',
+            }}>
+              Guanya Equip {hand.trickWinners[trickView]}
+            </p>
+            <div style={{ display: 'flex', gap: '1.25rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              {hand.tricks[trickView].map((play, i) => (
+                <div key={i} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 5 }}>
+                    {getPlayerName(players, play.position)}
+                  </div>
+                  <Card card={play.card} disabled />
+                </div>
+              ))}
+            </div>
+            <button className="btn btn-secondary" style={{ marginTop: '1.5rem' }} onClick={() => setTrickView(null)}>
+              Tancar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Winner banner */}
       {winner && (
         <div className="winner-banner">
           <div className="winner-card">
             <h1>🏆</h1>
             <h2 style={{ color: 'var(--gold)' }}>{t('game.gameWon', { team: winner.team })}</h2>
+            {winner.surrendered && (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>per rendició</p>
+            )}
             <p style={{ marginTop: '0.5rem' }}>{winner.scores[1]} – {winner.scores[2]}</p>
             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1.5rem' }}>
               <button className="btn btn-primary" onClick={() => window.location.reload()}>
@@ -380,6 +541,44 @@ export default function Game() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* In-game chat panel */}
+      {chatOpen && (
+        <div className="ingame-chat">
+          <div className="ingame-chat-header">
+            <span>Xat</span>
+            <button className="ingame-chat-close" onClick={toggleChat}>✕</button>
+          </div>
+          <div className="ingame-chat-messages">
+            {chatMessages.length === 0 && (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', marginTop: '1rem' }}>
+                Sense missatges...
+              </p>
+            )}
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={`chat-msg${msg.username === user?.username ? ' mine' : ''}`}>
+                <span className="chat-author">{msg.username}</span>
+                <span className="chat-text">{msg.message}</span>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+          <form className="chat-form" onSubmit={sendChat}>
+            <input
+              className="chat-input"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Missatge..."
+              maxLength={200}
+              autoComplete="off"
+            />
+            <button type="submit" className="btn btn-primary" style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem' }}
+              disabled={!chatInput.trim()}>
+              ➤
+            </button>
+          </form>
         </div>
       )}
 
