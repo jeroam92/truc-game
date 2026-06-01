@@ -11,6 +11,15 @@ Aplicació web multijugador per jugar al Truc Valencià en línia. 4 jugadors, 2
 | Base de dades | PostgreSQL 16 |
 | Infraestructura | Docker Compose |
 
+## Imatges Docker Hub
+
+Les imatges precompilades estan disponibles a Docker Hub:
+
+| Servei | Imatge |
+|--------|--------|
+| Backend | [`jeroam/truc-backend:2.0.0`](https://hub.docker.com/r/jeroam/truc-backend) |
+| Frontend | [`jeroam/truc-frontend:2.0.0`](https://hub.docker.com/r/jeroam/truc-frontend) |
+
 ## Requisits
 
 - Docker i Docker Compose
@@ -19,14 +28,86 @@ Aplicació web multijugador per jugar al Truc Valencià en línia. 4 jugadors, 2
 
 ## Posada en marxa
 
-### 1. Clona el repositori
+Hi ha dues opcions: usar les **imatges precompilades de Docker Hub** (recomanat) o **compilar des del codi font**.
+
+### Opció A — Imatges Docker Hub (sense clonar el repositori)
+
+Només necessites un fitxer `.env` i el `docker-compose.yml` següent:
+
+```yaml
+services:
+  truc-db:
+    image: postgres:16
+    container_name: truc-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - truc_db_data:/var/lib/postgresql/data
+    networks:
+      - truc_net
+
+  truc-backend:
+    image: jeroam/truc-backend:2.0.0
+    container_name: truc-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_HOST=truc-db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+    networks:
+      - truc_net
+    depends_on:
+      - truc-db
+
+  truc-frontend:
+    image: jeroam/truc-frontend:2.0.0
+    container_name: truc-frontend
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    networks:
+      - truc_net
+    depends_on:
+      - truc-backend
+
+networks:
+  truc_net:
+
+volumes:
+  truc_db_data:
+```
+
+Crea el `.env`, arrenca i llest:
+
+```bash
+docker compose up -d
+```
+
+### Opció B — Compilar des del codi font
+
+#### 1. Clona el repositori
 
 ```bash
 git clone https://github.com/jeroam92/truc-game.git
 cd truc-game
 ```
 
-### 2. Configura les variables d'entorn
+#### 2. Configura les variables d'entorn
 
 ```bash
 cp .env.example .env
@@ -57,7 +138,7 @@ SMTP_PASS=contrasenya_smtp
 SMTP_FROM=correu@exemple.com
 ```
 
-### 3. Arrenca amb Docker Compose
+#### 3. Arrenca amb Docker Compose
 
 ```bash
 docker compose up -d
@@ -67,7 +148,7 @@ Serveis arrencats:
 - **Frontend**: http://localhost:8081
 - **Backend**: port 3001 (intern, no exposat directament)
 
-### 4. Migracions de la base de dades
+#### 4. Migracions de la base de dades
 
 Les migracions s'executen automàticament a l'arrancar el backend. El fitxer de migració es troba a `backend/migrations/001_schema.sql`.
 
