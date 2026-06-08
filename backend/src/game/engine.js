@@ -179,18 +179,27 @@ function checkHandWinner(trickWinners, manoPosition, players) {
   return null;
 }
 
+// Pay out the points of an accepted Envit to its winner (independent of who
+// wins the hand). Called by every terminal path so the Envit is never lost,
+// e.g. when the opponents fold the Truc after accepting the Envit.
+function settleAcceptedEnvit(state) {
+  const h = state.hand;
+  if (h.envit.status === 'accepted' && !h.envit.settled && h.envit.winner && h.envit.points > 0) {
+    const newState = addPointsToTeam(state, h.envit.winner, h.envit.points);
+    return { ...newState, hand: { ...newState.hand, envit: { ...h.envit, settled: true } } };
+  }
+  return state;
+}
+
 function resolveHand(state) {
   const h = state.hand;
   const trucPts = h.truc.status === 'accepted' ? TRUC_STEPS[h.truc.step].value : 1;
   const winnerTeam = h.handWinner;
 
   let newState = addPointsToTeam(state, winnerTeam, trucPts);
+  newState = settleAcceptedEnvit(newState);
 
-  if (h.envit.status === 'accepted' && h.envit.winner && h.envit.points > 0) {
-    newState = addPointsToTeam(newState, h.envit.winner, h.envit.points);
-  }
-
-  return { ...newState, hand: { ...h } };
+  return { ...newState, hand: { ...newState.hand } };
 }
 
 // --- Truc challenge ---
@@ -235,13 +244,14 @@ function respondTruc(state, playerPosition, accept) {
 
   const foldPts = TRUC_STEPS[h.truc.step].foldGives;
   const callerTeam = h.truc.lastCallerTeam;
-  const newState = addPointsToTeam(state, callerTeam, foldPts);
+  let newState = addPointsToTeam(state, callerTeam, foldPts);
+  newState = settleAcceptedEnvit(newState);
 
   return {
     ...newState,
     hand: {
-      ...h,
-      truc: { ...h.truc, status: 'folded' },
+      ...newState.hand,
+      truc: { ...newState.hand.truc, status: 'folded' },
       handWinner: callerTeam,
       waitingResponse: null,
     },
@@ -322,11 +332,12 @@ function penalizeTimeout(state) {
   const losingTeam = h.waitingResponse ? h.waitingResponse.toTeam : getTeam(h.currentPlayer);
   const winningTeam = oppTeam(losingTeam);
 
-  const newState = addPointsToTeam(state, winningTeam, 3);
+  let newState = addPointsToTeam(state, winningTeam, 3);
+  newState = settleAcceptedEnvit(newState);
 
   return {
     ...newState,
-    hand: { ...h, handWinner: winningTeam, waitingResponse: null },
+    hand: { ...newState.hand, handWinner: winningTeam, waitingResponse: null },
   };
 }
 

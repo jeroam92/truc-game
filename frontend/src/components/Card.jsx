@@ -1,25 +1,28 @@
 // Renders a Spanish Truc card with suit icons
-const SUIT_ICONS = { oros: '⊙', copes: '♥', espases: '⚔', bastons: '⌘' };
-const SUIT_NAMES = { oros: 'Ors', copes: 'Copes', espases: 'Espases', bastons: 'Bastons' };
+import { useTranslation } from 'react-i18next';
+import SuitIcon from './SuitIcon';
 
 export default function Card({ card, onClick, disabled = false, small = false }) {
+  const { t } = useTranslation();
   if (!card) return null;
 
   const suitClass = `suit-${card.suit}`;
-  const icon = SUIT_ICONS[card.suit] || '?';
   const isClickable = !!onClick && !disabled;
+  const suitName = t(`game.suits.${card.suit}`, card.suit);
 
   return (
     <div
       className={`playing-card ${suitClass} ${disabled ? 'disabled' : ''} ${small ? 'small-card' : ''}`}
       style={small ? { width: 58, height: 87 } : {}}
       onClick={isClickable ? onClick : undefined}
-      title={`${card.value} de ${SUIT_NAMES[card.suit]}`}
+      title={`${card.value} de ${suitName}`}
     >
-      <span className={`card-corner ${suitClass}`}>{card.value}</span>
-      <span className={`card-value ${suitClass}`}>{card.value}</span>
-      <span className={`card-suit-icon ${suitClass}`}>{icon}</span>
-      <span className={`card-corner bottom-right ${suitClass}`}>{card.value}</span>
+      <span className={`card-corner ${suitClass}`}>{card.value}<SuitIcon suit={card.suit} className="card-pip" /></span>
+      <span className="card-center">
+        <span className={`card-value ${suitClass}`}>{card.value}</span>
+        <SuitIcon suit={card.suit} className={`card-suit-icon ${suitClass}`} />
+      </span>
+      <span className={`card-corner bottom-right ${suitClass}`}>{card.value}<SuitIcon suit={card.suit} className="card-pip" /></span>
     </div>
   );
 }

@@ -355,61 +355,132 @@ h1, h2, h3 { font-family: 'Cinzel', serif; }
   align-items: center;
 }
 
-/* Spanish card */
+/* ============ Baraja española ============ */
 .playing-card {
-  width: 82px;
-  height: 123px;
-  background: var(--card-bg);
-  border: 2px solid var(--card-border);
-  border-radius: 8px;
+  width: 84px;
+  height: 126px;
+  /* Cartulina marfil con grano cálido */
+  background:
+    radial-gradient(130% 100% at 50% -10%, #fffdf8 0%, #fbf3e1 55%, #f1e3c6 100%);
+  border: 1px solid #d8c089;
+  border-radius: 11px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform .2s cubic-bezier(.2,.7,.3,1), box-shadow .2s;
   position: relative;
   user-select: none;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  box-shadow:
+    0 1px 2px rgba(0,0,0,.25),
+    0 7px 16px rgba(0,0,0,.38),
+    inset 0 1px 0 rgba(255,255,255,.75);
 }
 
-.playing-card:hover { transform: translateY(-8px); box-shadow: 0 8px 20px rgba(0,0,0,0.5); }
-.playing-card.disabled { cursor: default; opacity: 0.8; }
-.playing-card.disabled:hover { transform: none; }
-.playing-card.face-down { background: linear-gradient(135deg, #1a5c2a, #0d3318); cursor: default; }
-.playing-card.face-down:hover { transform: none; }
+/* Marco dorado grabado en el interior de la carta */
+.playing-card::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 7px;
+  border: 1px solid rgba(184,150,70,.55);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.55), inset 0 0 14px rgba(184,150,70,.10);
+  pointer-events: none;
+}
 
+.playing-card:hover {
+  transform: translateY(-12px) rotate(-1.5deg) scale(1.04);
+  box-shadow: 0 3px 6px rgba(0,0,0,.3), 0 22px 38px rgba(0,0,0,.55);
+  z-index: 5;
+}
+.playing-card.disabled { cursor: default; filter: saturate(.85) brightness(.97); }
+.playing-card.disabled:hover {
+  transform: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,.25), 0 7px 16px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.75);
+}
+
+/* Dorso ornamentado: celosía dorada sobre fieltro verde */
+.playing-card.face-down {
+  background:
+    repeating-linear-gradient(45deg,  rgba(212,175,55,.16) 0 5px, transparent 5px 11px),
+    repeating-linear-gradient(-45deg, rgba(212,175,55,.16) 0 5px, transparent 5px 11px),
+    radial-gradient(circle at 50% 45%, #246b38 0%, #0d3318 78%);
+  border: 1px solid var(--gold);
+  cursor: default;
+}
+.playing-card.face-down::before {
+  inset: 5px;
+  border: 1px solid rgba(212,175,55,.6);
+  border-radius: 7px;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  content: '✦';
+  color: rgba(212,175,55,.85);
+  font-size: 1.7rem;
+  text-shadow: 0 0 10px rgba(212,175,55,.5);
+}
+.playing-card.face-down:hover { transform: none; box-shadow: 0 1px 2px rgba(0,0,0,.25), 0 7px 16px rgba(0,0,0,.38); }
+
+/* Medallón central: valor + emblema de palo */
+.card-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
 .card-value {
   font-family: 'Cinzel', serif;
-  font-size: 1.5rem;
+  font-size: 1.7rem;
   font-weight: 700;
   line-height: 1;
+  text-shadow: 0 1px 0 rgba(255,255,255,.85), 0 2px 3px rgba(0,0,0,.12);
 }
-
 .card-suit-icon {
-  font-size: 1.85rem;
-  margin-top: 2px;
+  font-size: 2.15rem;
+  line-height: 1;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.25));
 }
+.suit-svg { display: block; flex-shrink: 0; }
 
+/* Esquinas: valor con su palo en pequeño */
 .card-corner {
   position: absolute;
-  top: 4px; left: 6px;
-  font-size: 0.8rem;
+  top: 7px; left: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.82rem;
   font-family: 'Cinzel', serif;
   font-weight: 700;
-  line-height: 1;
+  line-height: .92;
 }
-
+.card-pip {
+  font-style: normal;
+  font-size: 0.72rem;
+  margin-top: 1px;
+}
 .card-corner.bottom-right {
   top: auto; left: auto;
-  bottom: 4px; right: 6px;
+  bottom: 7px; right: 8px;
   transform: rotate(180deg);
 }
 
-.suit-oros { color: #c8921a; }
-.suit-copes { color: #c41e3a; }
-.suit-espases { color: #1a3a7a; }
-.suit-bastons { color: #2d5a1a; }
+/* Palos — colores de la baraja */
+.suit-oros    { color: #c8921a; }
+.suit-copes   { color: #b01b30; }
+.suit-espases { color: #1f3f86; }
+.suit-bastons { color: #2f6b1f; }
+
+/* Cartas pequeñas (mano del rival / historial) */
+.playing-card.small-card .card-value    { font-size: 1.25rem; }
+.playing-card.small-card .card-suit-icon { font-size: 1.45rem; }
+.playing-card.small-card .card-corner   { font-size: 0.62rem; top: 5px; left: 6px; }
+.playing-card.small-card .card-corner.bottom-right { bottom: 5px; right: 6px; }
+.playing-card.small-card .card-pip      { font-size: 0.55rem; }
+.playing-card.small-card::before        { inset: 4px; border-radius: 6px; }
 
 .hand-zone {
   display: flex;
